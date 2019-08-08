@@ -8,18 +8,20 @@
 
 import UIKit
 import SwiftUI
+import CoreBluetooth
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate, ContentDelegate {
 
     var window: UIWindow?
+    
+    // Bluetooth
+    let scannerCBUUID = CBUUID(string: "0x1812")
+    var centralManager: CBCentralManager!
+    var scannerPeripheral: CBPeripheral!
+    var peripheralManager: CBPeripheralManager!
 
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
-        // Use this method to optionally configure and attach the UIWindow `window` to the provided UIWindowScene `scene`.
-        // If using a storyboard, the `window` property will automatically be initialized and attached to the scene.
-        // This delegate does not imply the connecting scene or session are new (see `application:configurationForConnectingSceneSession` instead).
-
-        // Use a UIHostingController as window root view controller
         if let windowScene = scene as? UIWindowScene {
             let window = UIWindow(windowScene: windowScene)
             window.rootViewController = UIHostingController(rootView: ContentView(delegate: self))
@@ -27,43 +29,171 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate, ContentDelegate {
             window.makeKeyAndVisible()
         }
     }
-
-    func sceneDidDisconnect(_ scene: UIScene) {
-        // Called as the scene is being released by the system.
-        // This occurs shortly after the scene enters the background, or when its session is discarded.
-        // Release any resources associated with this scene that can be re-created the next time the scene connects.
-        // The scene may re-connect later, as its session was not neccessarily discarded (see `application:didDiscardSceneSessions` instead).
-    }
-
+    
     func sceneDidBecomeActive(_ scene: UIScene) {
-        // Called when the scene has moved from an inactive state to an active state.
-        // Use this method to restart any tasks that were paused (or not yet started) when the scene was inactive.
-    }
-
-    func sceneWillResignActive(_ scene: UIScene) {
-        // Called when the scene will move from an active state to an inactive state.
-        // This may occur due to temporary interruptions (ex. an incoming phone call).
-    }
-
-    func sceneWillEnterForeground(_ scene: UIScene) {
-        // Called as the scene transitions from the background to the foreground.
-        // Use this method to undo the changes made on entering the background.
-    }
-
-    func sceneDidEnterBackground(_ scene: UIScene) {
-        // Called as the scene transitions from the foreground to the background.
-        // Use this method to save data, release shared resources, and store enough scene-specific state information
-        // to restore the scene back to its current state.
+        self.setupBluetooth()
     }
     
     func bluetoothScanPressed() {
         print("scan pressed")
+        self.scanForPeripherals()
     }
     
     func bluetoothDisconnectPressed() {
         print("disconnect pressed")
+        self.centralManager.cancelPeripheralConnection(self.scannerPeripheral)
     }
 
 
 }
 
+// MARK: - Bluetooth
+extension SceneDelegate: CBCentralManagerDelegate {
+
+    func setupBluetooth() {
+
+        self.centralManager = CBCentralManager(delegate: self, queue: nil)
+        self.peripheralManager = CBPeripheralManager.init(delegate: self, queue: DispatchQueue.main )
+
+    }
+
+    func scanForPeripherals() {
+
+//        self.centralManager.scanForPeripherals(withServices: [self.scannerCBUUID])
+        self.centralManager.scanForPeripherals(withServices: nil)
+
+    }
+
+    private func scan(from characteristic: CBCharacteristic) -> String {
+        guard let characteristicData = characteristic.value else { return "" }
+        let byteArray = [UInt8](characteristicData)
+
+        let firstBitValue = byteArray[0] & 0x01
+        if firstBitValue == 0 {
+//            return byteArray[1]
+        } else {
+//            return byteArray[1] << 8 + byteArray[2]
+        }
+        return ""
+    }
+
+    private func onScanReceived(_ scan: String) {
+        print("Scanned: \(scan)")
+    }
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+
+        switch central.state {
+            case .unknown:
+                print("central.state is .unknown")
+            case .resetting:
+                print("central.state is .resetting")
+            case .unsupported:
+                print("central.state is .unsupported")
+            case .unauthorized:
+                print("central.state is .unauthorized")
+            case .poweredOff:
+                print("central.state is .poweredOff")
+            case .poweredOn:
+                print("central.state is .poweredOn")
+            default:
+                ()
+        }
+
+    }
+
+    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
+        central.cancelPeripheralConnection(peripheral)
+        
+        if peripheral.name ?? "" == "KDC280[000023]" {
+            print(peripheral)
+            print(peripheral.services as Any)
+            print(advertisementData)
+            print(RSSI)
+            
+            self.setupPeripheral(peripheral)
+        }
+    }
+
+    func setupPeripheral(_ peripheral: CBPeripheral) {
+        self.scannerPeripheral = peripheral
+        self.scannerPeripheral.delegate = self
+        self.centralManager.stopScan()
+        self.centralManager.connect(self.scannerPeripheral)
+    }
+    
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        print("connected!")
+        peripheral.discoverServices(nil)
+    }
+
+    func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        print("disconnected")
+    }
+    
+}
+
+extension SceneDelegate: CBPeripheralDelegate {
+    
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard let services = peripheral.services else { return }
+        for service in services {
+            print(service)
+            peripheral.discoverCharacteristics(nil, for: service)
+        }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard let characteristics = service.characteristics else { return }
+        
+//        self.testPeripheral(characteristics: characteristics)
+        
+        for characteristic in characteristics {
+            print(characteristic)
+            
+            
+
+            if characteristic.properties.contains(.read) {
+                print("\(characteristic.uuid) containes read")
+                peripheral.readValue(for: characteristic)
+            }
+            if characteristic.properties.contains(.notify) {
+                print("\(characteristic.uuid) containes notify")
+                peripheral.setNotifyValue(true, for: characteristic)
+            }
+        }
+    }
+    
+    func testPeripheral(characteristics: [CBCharacteristic]) {
+        let value = 1234
+        let data = withUnsafeBytes(of: value) { Data($0) }
+        for characteristic in characteristics {
+            if characteristic.properties.contains(.notify) {
+                self.scannerPeripheral.setNotifyValue(true, for: characteristic)
+                self.scannerPeripheral.writeValue(data, for: characteristic, type: .withResponse)
+            }
+        }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        switch characteristic.uuid {
+            case self.scannerCBUUID:
+                let scan = self.scan(from: characteristic)
+                self.onScanReceived(scan)
+                print(characteristic.value ?? "no value")
+            default:
+                print("unhandled characteristic, UUID: \(characteristic.uuid)")
+        }
+    }
+    
+    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor descriptor: CBDescriptor, error: Error?) {
+        
+    }
+
+}
+
+extension SceneDelegate: CBPeripheralManagerDelegate {
+    func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+        
+    }
+}
