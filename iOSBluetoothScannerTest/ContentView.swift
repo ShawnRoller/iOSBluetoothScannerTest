@@ -6,11 +6,30 @@
 //  Copyright © 2019 Evolve Dev. All rights reserved.
 //
 
+protocol ContentDelegate {
+    func bluetoothScanPressed()
+    func bluetoothDisconnectPressed()
+}
+
 import SwiftUI
 
 struct ContentView: View {
+    var delegate: ContentDelegate?
+    
     var body: some View {
-        Text("Hello World")
+        VStack {
+            Button(action: {
+                self.delegate?.bluetoothScanPressed()
+            }, label: {
+                Text("Scan bluetooth")
+            })
+            Divider()
+            Button(action: {
+                self.delegate?.bluetoothDisconnectPressed()
+            }, label: {
+                Text("Disconnect bluetooth")
+            })
+        }
     }
 }
 
